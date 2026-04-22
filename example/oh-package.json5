@@ -1,0 +1,9 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "libmdk-napi-example",
+  "version": "1.0.0",
+  "description": "Example app demonstrating @mediadevkit/libmdk-napi",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}

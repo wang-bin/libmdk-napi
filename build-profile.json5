@@ -1,0 +1,47 @@
+{
+  "app": {
+    "products": [
+      {
+        "name": "default",
+        "compileSdkVersion": "6.0.2(22)",
+        "compatibleSdkVersion": "5.0.0(12)",
+        "targetSdkVersion": "6.0.2(22)",
+        "runtimeOS": "HarmonyOS"
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "libmdk_napi",
+      "srcPath": "./libmdk_napi",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "entry",
+      "srcPath": "./example/entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

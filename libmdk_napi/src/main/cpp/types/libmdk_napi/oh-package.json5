@@ -1,0 +1,5 @@
+{
+  "name": "libmdk_napi",
+  "version": "0.1.0",
+  "description": "Type declarations for the MediaDevKit MDK OHOS native module"
+}

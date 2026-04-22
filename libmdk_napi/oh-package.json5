@@ -1,0 +1,10 @@
+{
+  "name": "@mediadevkit/libmdk-napi",
+  "version": "0.1.0",
+  "description": "Reusable MDK player package for OpenHarmony applications",
+  "main": "src/main/ets/index.ets",
+  "author": "Wang Bin",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}

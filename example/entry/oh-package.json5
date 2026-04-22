@@ -1,0 +1,11 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "Example entry module",
+  "main": "",
+  "author": "Wang Bin",
+  "license": "MIT",
+  "dependencies": {
+    "@mediadevkit/libmdk-napi": "file:../../libmdk_napi"
+  }
+}

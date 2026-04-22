@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "MDK player example module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "MDK example app"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "MDK Example"
+    }
+  ]
+}

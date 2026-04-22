@@ -1,0 +1,9 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "@mediadevkit/libmdk-napi-workspace",
+  "version": "0.1.0",
+  "description": "Workspace for the MediaDevKit OHOS MDK package",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}

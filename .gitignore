@@ -1,0 +1,57 @@
+mdk-sdk
+# Build outputs
+build/
+dist/
+out/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+
+# HarmonyOS/DevEco Studio
+.cxx
+.hvigor/
+.ide/
+.idea/
+*.iml
+*.ipr
+*.iws
+.gradle/
+local.properties
+
+# Node modules
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+oh-package-lock.json5
+
+# OS
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Dependencies
+oh_modules/
+
+# Temporary files
+*.tmp
+*.log
+*.swp
+*.swo
+*~
+
+# IDE settings
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# CMake
+cmake-build-debug/
+cmake-build-release/
+
+# Environment
+.env
+.env.local
