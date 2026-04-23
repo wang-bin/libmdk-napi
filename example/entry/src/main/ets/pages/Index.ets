@@ -1,4 +1,5 @@
 import { MdkPlayerController, MdkPlayerView } from '@mediadevkit/libmdk-napi';
+import picker from '@ohos.file.picker';
 
 const SPEEDS: number[] = [0.5, 1.0, 1.5, 2.0];
 
@@ -208,6 +209,26 @@ struct Index {
           this.controller.setMedia(this.url);
           this.controller.play();
           this.isPlaying = true;
+        })
+
+      Button('Open File')
+        .margin({ top: 8 })
+        .onClick(() => {
+          const documentPicker = new picker.DocumentViewPicker();
+          const selectOptions = new picker.DocumentSelectOptions();
+          selectOptions.maxSelectNumber = 1;
+          documentPicker.select(selectOptions).then((uris: Array<string>) => {
+            if (uris.length > 0) {
+              this.url = uris[0];
+              this.currentPos = 0;
+              this.duration = 0;
+              this.controller.setMedia(this.url);
+              this.controller.play();
+              this.isPlaying = true;
+            }
+          }).catch((err: Error) => {
+            console.error('DocumentViewPicker select failed: ' + err.message);
+          });
         })
 
         } // end Column

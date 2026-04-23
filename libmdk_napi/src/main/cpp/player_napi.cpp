@@ -7,6 +7,7 @@
 #include <ace/xcomponent/native_interface_xcomponent.h>
 #include <hilog/log.h>
 #include <napi/native_api.h>
+#include <filemanagement/file_uri/oh_file_uri.h>
 
 #include "mdk/Player.h"
 
@@ -191,6 +192,16 @@ napi_value SetMedia(napi_env env, napi_callback_info info)
         if (url.rfind("fd://", 0) == 0) {
             ctx.player->setProperty("avio", url.substr(5));
             ctx.player->setMedia("fd:");
+        } else if (url.rfind("file://", 0) == 0) {
+            char* realPath = nullptr;
+            FileManagement_ErrCode err = OH_FileUri_GetPathFromUri(url.c_str(), (unsigned int)url.size(), &realPath);
+            if (err == ERR_OK && realPath != nullptr) {
+                OH_LOG_Print(LOG_APP, LOG_INFO, 0xFF00, "mdk-napi", " %{public}s => %{public}s", url.data(), realPath);
+                ctx.player->setMedia(realPath);
+                free(realPath);
+            } else {
+                ctx.player->setMedia(url.c_str());
+            }
         } else {
             ctx.player->setMedia(url.c_str());
         }
