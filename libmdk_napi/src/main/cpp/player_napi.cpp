@@ -18,63 +18,50 @@
 #include <vector>
 
 using namespace MDK_NS;
+using namespace std;
 
-namespace {
+namespace { // no need to add static for each function/var in an anonymous namespace
 
 struct PlayerContext {
-    std::unique_ptr<Player> player;
+    unique_ptr<Player> player;
     void* window = nullptr;
 };
 
-std::mutex gMutex;
-std::map<std::string, PlayerContext> gPlayers;
-std::once_flag gLogHandlerOnce;
+mutex gMutex;
+map<string, PlayerContext> gPlayers;
 
-PlayerContext& EnsureContextLocked(const std::string& id)
+// Lock gMutex, ensure player context exists, then call f(ctx).
+auto lockFor(const string& id, auto&& f)
 {
-    auto& context = gPlayers[id];
-    if (!context.player)
-        context.player = std::make_unique<Player>();
-    return context;
+    [[maybe_unused]] const scoped_lock lock(gMutex);
+    auto& ctx = gPlayers[id];
+    if (!ctx.player)
+        ctx.player = make_unique<Player>();
+    if constexpr (is_invocable_v<decltype(f), PlayerContext&>)
+        return f(ctx);
 }
 
-PlayerContext* FindContextLocked(const std::string& id)
+// Lock gMutex and call f(ctx) only if the context already exists.
+void lockFind(const string& id, auto&& f)
 {
-    auto it = gPlayers.find(id);
-    return it == gPlayers.end() ? nullptr : &it->second;
+    [[maybe_unused]] const scoped_lock lock(gMutex);
+    if (auto it = gPlayers.find(id); it != gPlayers.end())
+        f(it->second);
 }
 
-std::string GetStringArg(napi_env env, napi_value value)
+string ToString(napi_env env, napi_value value)
 {
     size_t length = 0;
     napi_get_value_string_utf8(env, value, nullptr, 0, &length);
-    std::vector<char> buffer(length + 1);
+    vector<char> buffer(length + 1);
     napi_get_value_string_utf8(env, value, buffer.data(), buffer.size(), &length);
-    return std::string(buffer.data(), length);
+    return {buffer.data(), length};
 }
 
-std::vector<std::string> GetStringArrayArg(napi_env env, napi_value value)
+template<class Container>
+Container FromArray(napi_env env, napi_value value)
 {
-    std::vector<std::string> result;
-    bool isArray = false;
-    napi_is_array(env, value, &isArray);
-    if (!isArray)
-        return result;
-
-    uint32_t length = 0;
-    napi_get_array_length(env, value, &length);
-    result.reserve(length);
-    for (uint32_t index = 0; index < length; ++index) {
-        napi_value item = nullptr;
-        napi_get_element(env, value, index, &item);
-        result.push_back(GetStringArg(env, item));
-    }
-    return result;
-}
-
-std::set<int> GetIntSetArg(napi_env env, napi_value value)
-{
-    std::set<int> result;
+    Container result;
     bool isArray = false;
     napi_is_array(env, value, &isArray);
     if (!isArray)
@@ -84,75 +71,71 @@ std::set<int> GetIntSetArg(napi_env env, napi_value value)
     napi_get_array_length(env, value, &length);
     for (uint32_t index = 0; index < length; ++index) {
         napi_value item = nullptr;
-        int32_t track = 0;
         napi_get_element(env, value, index, &item);
-        napi_get_value_int32(env, item, &track);
-        result.insert(track);
+        if constexpr (is_same_v<typename Container::value_type, int>) {
+            int32_t v = 0;
+            napi_get_value_int32(env, item, &v);
+            result.insert(result.end(), v);
+        }
+        if constexpr (is_same_v<typename Container::value_type, string>) {
+            result.insert(result.end(), ToString(env, item));
+        }
     }
     return result;
 }
 
 void RegisterLogHandlerOnce()
 {
-    std::call_once(gLogHandlerOnce, [] {
+    static once_flag gLogHandlerOnce;
+    call_once(gLogHandlerOnce, [] {
+        static const ::LogLevel ohLevels[] = {
+            LOG_INFO,
+            LOG_ERROR,
+            LOG_WARN,
+            LOG_INFO,
+            LOG_DEBUG,
+            LOG_DEBUG,
+        };
         setLogHandler([](MDK_NS::LogLevel level, const char* msg) {
-            static const ::LogLevel ohLevels[] = {
-                LOG_INFO,
-                LOG_ERROR,
-                LOG_WARN,
-                LOG_INFO,
-                LOG_DEBUG,
-                LOG_DEBUG,
-            };
             const int index = (int)level >= 0 && (int)level < 6 ? (int)level : 0;
             OH_LOG_Print(LOG_APP, ohLevels[index], 0xFF00, "mdk", "%{public}s", msg);
         });
     });
 }
 
-std::string XComponentIdOf(OH_NativeXComponent* component)
+string IdOf(OH_NativeXComponent* component)
 {
     char id[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
     uint64_t idLength = OH_XCOMPONENT_ID_LEN_MAX + 1;
     OH_NativeXComponent_GetXComponentId(component, id, &idLength);
-    return std::string(id);
+    return id;
 }
 
 void OnSurfaceCreated(OH_NativeXComponent* component, void* window)
 {
-    const std::string id = XComponentIdOf(component);
-    uint64_t width = 0;
-    uint64_t height = 0;
+    uint64_t width = 0, height = 0;
     OH_NativeXComponent_GetXComponentSize(component, window, &width, &height);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    auto& context = EnsureContextLocked(id);
-    context.window = window;
-    context.player->updateNativeSurface(window, (int)width, (int)height);
+    lockFor(IdOf(component), [=](PlayerContext& ctx) {
+        ctx.window = window;
+        ctx.player->updateNativeSurface(window, (int)width, (int)height);
+    });
 }
 
 void OnSurfaceChanged(OH_NativeXComponent* component, void* window)
 {
-    const std::string id = XComponentIdOf(component);
-    uint64_t width = 0;
-    uint64_t height = 0;
+    uint64_t width = 0, height = 0;
     OH_NativeXComponent_GetXComponentSize(component, window, &width, &height);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    if (auto* context = FindContextLocked(id))
-        context->player->updateNativeSurface(context->window, (int)width, (int)height);
+    lockFind(IdOf(component), [=](PlayerContext& ctx) {
+        ctx.player->updateNativeSurface(ctx.window, (int)width, (int)height);
+    });
 }
 
-void OnSurfaceDestroyed(OH_NativeXComponent* component, void* window)
+void OnSurfaceDestroyed(OH_NativeXComponent* component, void* /*window*/)
 {
-    (void)window;
-    const std::string id = XComponentIdOf(component);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    if (auto* context = FindContextLocked(id)) {
-        context->window = nullptr;
-        context->player->updateNativeSurface(nullptr, 0, 0);
-    }
+    lockFind(IdOf(component), [](PlayerContext& ctx) {
+        ctx.window = nullptr;
+        ctx.player->updateNativeSurface(nullptr, 0, 0);
+    });
 }
 
 napi_value Undefined(napi_env env)
@@ -164,42 +147,31 @@ napi_value Undefined(napi_env env)
 
 napi_value SetVideoSurfaceSize(napi_env env, napi_callback_info info)
 {
-    size_t argc = 3;
-    napi_value args[3];
+    size_t argc = 3; napi_value args[3];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    int32_t width = 0;
-    int32_t height = 0;
+    int32_t width = 0, height = 0;
     napi_get_value_int32(env, args[1], &width);
     napi_get_value_int32(env, args[2], &height);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    if (auto* context = FindContextLocked(id))
-        context->player->setVideoSurfaceSize(width, height, context->window);
+    lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) {
+        ctx.player->setVideoSurfaceSize(width, height, ctx.window);
+    });
     return Undefined(env);
 }
 
 napi_value EnsurePlayer(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1];
+    size_t argc = 1; napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id);
+    lockFor(ToString(env, args[0]), nullptr);
     return Undefined(env);
 }
 
 napi_value ReleasePlayer(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1];
+    size_t argc = 1; napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    std::lock_guard<std::mutex> lock(gMutex);
+    const auto id = ToString(env, args[0]);
+    const scoped_lock lock(gMutex);
     auto it = gPlayers.find(id);
     if (it != gPlayers.end()) {
         if (it->second.window)
@@ -212,183 +184,126 @@ napi_value ReleasePlayer(napi_env env, napi_callback_info info)
 
 napi_value SetMedia(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2;
-    napi_value args[2];
+    size_t argc = 2; napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    const std::string url = GetStringArg(env, args[1]);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    auto& context = EnsureContextLocked(id);
-    if (url.rfind("fd://", 0) == 0) {
-        context.player->setProperty("avio", url.substr(5));
-        context.player->setMedia("fd:");
-    } else {
-        context.player->setMedia(url.c_str());
-    }
+    const string url = ToString(env, args[1]);
+    lockFor(ToString(env, args[0]), [&](PlayerContext& ctx) {
+        if (url.rfind("fd://", 0) == 0) {
+            ctx.player->setProperty("avio", url.substr(5));
+            ctx.player->setMedia("fd:");
+        } else {
+            ctx.player->setMedia(url.c_str());
+        }
+    });
     return Undefined(env);
 }
 
 napi_value SetMediaSource(napi_env env, napi_callback_info info)
 {
-    size_t argc = 3;
-    napi_value args[3];
+    size_t argc = 3; napi_value args[3];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    const std::string url = GetStringArg(env, args[1]);
+    const string url = ToString(env, args[1]);
     int32_t mediaType = 0;
     napi_get_value_int32(env, args[2], &mediaType);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    auto& context = EnsureContextLocked(id);
-    context.player->setMedia(url.empty() ? nullptr : url.c_str(), (MediaType)mediaType);
+    lockFor(ToString(env, args[0]), [&](PlayerContext& ctx) {
+        ctx.player->setMedia(url.empty() ? nullptr : url.c_str(), (MediaType)mediaType);
+    });
     return Undefined(env);
 }
 
 napi_value Play(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1];
+    size_t argc = 1; napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id).player->set(State::Playing);
+    lockFor(ToString(env, args[0]), [](PlayerContext& ctx) { ctx.player->set(State::Playing); });
     return Undefined(env);
 }
 
 napi_value Pause(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1];
+    size_t argc = 1; napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id).player->set(State::Paused);
+    lockFor(ToString(env, args[0]), [](PlayerContext& ctx) { ctx.player->set(State::Paused); });
     return Undefined(env);
 }
 
 napi_value Stop(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1];
+    size_t argc = 1; napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id).player->set(State::Stopped);
+    lockFor(ToString(env, args[0]), [](PlayerContext& ctx) { ctx.player->set(State::Stopped); });
     return Undefined(env);
 }
 
 napi_value Prepare(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2;
-    napi_value args[2];
+    size_t argc = 2; napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
     int64_t startPosition = 0;
     if (argc > 1)
         napi_get_value_int64(env, args[1], &startPosition);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id).player->prepare(startPosition);
+    lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) { ctx.player->prepare(startPosition); });
     return Undefined(env);
 }
 
 napi_value Seek(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2;
-    napi_value args[2];
+    size_t argc = 2; napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
     int64_t ms = 0;
     napi_get_value_int64(env, args[1], &ms);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id).player->seek(ms);
+    lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) { ctx.player->seek(ms); });
     return Undefined(env);
 }
 
 napi_value SetPlaybackRate(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2;
-    napi_value args[2];
+    size_t argc = 2; napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
     double rate = 1.0;
     napi_get_value_double(env, args[1], &rate);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id).player->setPlaybackRate((float)rate);
+    lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) { ctx.player->setPlaybackRate((float)rate); });
     return Undefined(env);
 }
 
 napi_value SetVolume(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2;
-    napi_value args[2];
+    size_t argc = 2; napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
     double volume = 1.0;
     napi_get_value_double(env, args[1], &volume);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id).player->setVolume((float)volume);
+    lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) { ctx.player->setVolume((float)volume); });
     return Undefined(env);
 }
 
 napi_value SetLoop(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2;
-    napi_value args[2];
+    size_t argc = 2; napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
     int32_t count = 0;
     napi_get_value_int32(env, args[1], &count);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id).player->setLoop(count);
+    lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) { ctx.player->setLoop(count); });
     return Undefined(env);
 }
 
 napi_value SetProperty(napi_env env, napi_callback_info info)
 {
-    size_t argc = 3;
-    napi_value args[3];
+    size_t argc = 3; napi_value args[3];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    const std::string key = GetStringArg(env, args[1]);
-    const std::string value = GetStringArg(env, args[2]);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id).player->setProperty(key, value);
+    const auto key = ToString(env, args[1]);
+    const auto value = ToString(env, args[2]);
+    lockFor(ToString(env, args[0]), [&](PlayerContext& ctx) { ctx.player->setProperty(key, value); });
     return Undefined(env);
 }
 
 napi_value GetProperty(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2;
-    napi_value args[2];
+    size_t argc = 2; napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    const std::string key = GetStringArg(env, args[1]);
-
-    std::string value;
-    {
-        std::lock_guard<std::mutex> lock(gMutex);
-        value = EnsureContextLocked(id).player->property(key);
-    }
-
+    const auto key = ToString(env, args[1]);
+    const auto value = lockFor(ToString(env, args[0]), [&](PlayerContext& ctx) {
+        return ctx.player->property(key);
+    });
     napi_value result = nullptr;
     napi_create_string_utf8(env, value.c_str(), value.size(), &result);
     return result;
@@ -396,133 +311,84 @@ napi_value GetProperty(napi_env env, napi_callback_info info)
 
 napi_value SetColorSpace(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2;
-    napi_value args[2];
+    size_t argc = 2; napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
     int32_t colorSpace = 0;
     napi_get_value_int32(env, args[1], &colorSpace);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    auto& context = EnsureContextLocked(id);
-    context.player->set((ColorSpace)colorSpace, context.window);
+    lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) { ctx.player->set((ColorSpace)colorSpace, ctx.window); });
     return Undefined(env);
 }
 
 napi_value SetDecoders(napi_env env, napi_callback_info info)
 {
-    size_t argc = 3;
-    napi_value args[3];
+    size_t argc = 3; napi_value args[3];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
     int32_t mediaType = 0;
     napi_get_value_int32(env, args[1], &mediaType);
-    const std::vector<std::string> decoders = GetStringArrayArg(env, args[2]);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id).player->setDecoders((MediaType)mediaType, decoders);
+    const auto decoders = FromArray<vector<string>>(env, args[2]);
+    lockFor(ToString(env, args[0]), [&](PlayerContext& ctx) {
+        ctx.player->setDecoders((MediaType)mediaType, decoders);
+    });
     return Undefined(env);
 }
 
 napi_value SetActiveTracks(napi_env env, napi_callback_info info)
 {
-    size_t argc = 3;
-    napi_value args[3];
+    size_t argc = 3; napi_value args[3];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
     int32_t mediaType = 0;
     napi_get_value_int32(env, args[1], &mediaType);
-    const std::set<int> tracks = GetIntSetArg(env, args[2]);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id).player->setActiveTracks((MediaType)mediaType, tracks);
+    const auto tracks = FromArray<set<int>>(env, args[2]);
+    lockFor(ToString(env, args[0]), [&](PlayerContext& ctx) {
+        ctx.player->setActiveTracks((MediaType)mediaType, tracks);
+    });
     return Undefined(env);
 }
 
 napi_value SetAudioBackends(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2;
-    napi_value args[2];
+    size_t argc = 2; napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    const std::vector<std::string> backends = GetStringArrayArg(env, args[1]);
-
-    std::lock_guard<std::mutex> lock(gMutex);
-    EnsureContextLocked(id).player->setAudioBackends(backends);
+    const auto backends = FromArray<vector<string>>(env, args[1]);
+    lockFor(ToString(env, args[0]), [&](PlayerContext& ctx) { ctx.player->setAudioBackends(backends); });
     return Undefined(env);
 }
 
 napi_value GetPosition(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1];
+    size_t argc = 1; napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    int64_t position = 0;
-    {
-        std::lock_guard<std::mutex> lock(gMutex);
-        position = EnsureContextLocked(id).player->position();
-    }
-
+    const auto pos = lockFor(ToString(env, args[0]), [](PlayerContext& ctx) { return ctx.player->position(); });
     napi_value result = nullptr;
-    napi_create_int64(env, position, &result);
+    napi_create_int64(env, pos, &result);
     return result;
 }
 
 napi_value GetDuration(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1];
+    size_t argc = 1; napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    int64_t duration = 0;
-    {
-        std::lock_guard<std::mutex> lock(gMutex);
-        duration = EnsureContextLocked(id).player->mediaInfo().duration;
-    }
-
+    const auto dur = lockFor(ToString(env, args[0]), [](PlayerContext& ctx) { return ctx.player->mediaInfo().duration; });
     napi_value result = nullptr;
-    napi_create_int64(env, duration, &result);
+    napi_create_int64(env, dur, &result);
     return result;
 }
 
 napi_value Buffered(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1];
+    size_t argc = 1; napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    int64_t buffered = 0;
-    {
-        std::lock_guard<std::mutex> lock(gMutex);
-        buffered = EnsureContextLocked(id).player->buffered();
-    }
-
+    const auto buf = lockFor(ToString(env, args[0]), [](PlayerContext& ctx) { return ctx.player->buffered(); });
     napi_value result = nullptr;
-    napi_create_int64(env, buffered, &result);
+    napi_create_int64(env, buf, &result);
     return result;
 }
 
 napi_value GetState(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1];
+    size_t argc = 1; napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    int32_t state = 0;
-    {
-        std::lock_guard<std::mutex> lock(gMutex);
-        state = (int32_t)EnsureContextLocked(id).player->state();
-    }
-
+    const auto state = lockFor(ToString(env, args[0]), [](PlayerContext& ctx) { return (int32_t)ctx.player->state(); });
     napi_value result = nullptr;
     napi_create_int32(env, state, &result);
     return result;
@@ -530,17 +396,9 @@ napi_value GetState(napi_env env, napi_callback_info info)
 
 napi_value GetMediaStatus(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1];
+    size_t argc = 1; napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    int32_t status = 0;
-    {
-        std::lock_guard<std::mutex> lock(gMutex);
-        status = (int32_t)EnsureContextLocked(id).player->mediaStatus();
-    }
-
+    const auto status = lockFor(ToString(env, args[0]), [](PlayerContext& ctx) { return (int32_t)ctx.player->mediaStatus(); });
     napi_value result = nullptr;
     napi_create_int32(env, status, &result);
     return result;
@@ -548,19 +406,13 @@ napi_value GetMediaStatus(napi_env env, napi_callback_info info)
 
 napi_value IsPlaying(napi_env env, napi_callback_info info)
 {
-    size_t argc = 1;
-    napi_value args[1];
+    size_t argc = 1; napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    const std::string id = GetStringArg(env, args[0]);
-    bool isPlaying = false;
-    {
-        std::lock_guard<std::mutex> lock(gMutex);
-        isPlaying = EnsureContextLocked(id).player->state() == State::Playing;
-    }
-
+    const auto playing = lockFor(ToString(env, args[0]), [](PlayerContext& ctx) {
+        return ctx.player->state() == State::Playing;
+    });
     napi_value result = nullptr;
-    napi_get_boolean(env, isPlaying, &result);
+    napi_get_boolean(env, playing, &result);
     return result;
 }
 
@@ -578,11 +430,7 @@ napi_value Init(napi_env env, napi_value exports)
                 OH_NativeXComponent* nativeXComponent = nullptr;
                 napi_unwrap(env, xcompInstance, (void**)&nativeXComponent);
                 if (nativeXComponent) {
-                    const std::string id = XComponentIdOf(nativeXComponent);
-                    {
-                        std::lock_guard<std::mutex> lock(gMutex);
-                        EnsureContextLocked(id);
-                    }
+                    lockFor(IdOf(nativeXComponent), nullptr);
 
                     static OH_NativeXComponent_Callback callbacks {};
                     callbacks.OnSurfaceCreated = OnSurfaceCreated;
@@ -627,19 +475,6 @@ napi_value Init(napi_env env, napi_value exports)
     return exports;
 }
 
-static napi_module playerModule = {
-    .nm_version = 1,
-    .nm_flags = 0,
-    .nm_filename = nullptr,
-    .nm_register_func = Init,
-    .nm_modname = "mdk_napi",
-    .nm_priv = nullptr,
-    .reserved = {nullptr},
-};
+NAPI_MODULE(mdk_napi, Init)
 
 } // namespace
-
-extern "C" __attribute__((constructor)) void RegisterPlayerNapiModule(void)
-{
-    napi_module_register(&playerModule);
-}
