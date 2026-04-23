@@ -35,6 +35,17 @@
             "actions": [
               "action.system.home"
             ]
+          },
+          {
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "uris": [
+              { "scheme": "file", "type": "video/*", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "audio/*", "linkFeature": "FileOpen" },
+              { "scheme": "datashare", "type": "video/*", "linkFeature": "FileOpen" },
+              { "scheme": "datashare", "type": "audio/*", "linkFeature": "FileOpen" }
+            ]
           }
         ]
       }

@@ -18,9 +18,15 @@ struct Index {
   @State url: string = 'https://ks3-cn-beijing.ksyun.com/ksplayer/h265/outside_demo/v1.1.3/720P2M30fpsh265-wasmtest.flv';
   @State isFullscreen: boolean = false;
   @State videoReady: boolean = false;
+  @StorageProp('openFileUri') @Watch('onOpenFileUriChanged') openFileUri: string = '';
 
   aboutToAppear(): void {
     this.controller.setDecoders(['OH', 'ohcodec:copy=1', 'FFmpeg']);
+    const initialUri = this.openFileUri;
+    if (initialUri) {
+      this.url = initialUri;
+      AppStorage.setOrCreate<string>('openFileUri', '');
+    }
     this.controller.setMedia(this.url);
     this.controller.play();
     this.isPlaying = true;
@@ -49,6 +55,20 @@ struct Index {
       clearInterval(this.progressTimer);
       this.progressTimer = -1;
     }
+  }
+
+  private onOpenFileUriChanged(): void {
+    const uri = this.openFileUri;
+    if (!uri) {
+      return;
+    }
+    AppStorage.setOrCreate<string>('openFileUri', '');
+    this.url = uri;
+    this.currentPos = 0;
+    this.duration = 0;
+    this.controller.setMedia(uri);
+    this.controller.play();
+    this.isPlaying = true;
   }
 
   private formatTime(ms: number): string {
