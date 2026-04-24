@@ -36,8 +36,13 @@ auto lockFor(const string& id, auto&& f)
 {
     [[maybe_unused]] const scoped_lock lock(gMutex);
     auto& ctx = gPlayers[id];
-    if (!ctx.player)
+    if (!ctx.player) {
         ctx.player = make_unique<Player>();
+        const char* vdecs = nullptr;
+        if (GetGlobalOption("video.decoders.hint", &vdecs)) {
+            ctx.player->setProperty("video.decoders", vdecs);
+        }
+    }
     if constexpr (is_invocable_v<decltype(f), PlayerContext&>)
         return f(ctx);
 }
@@ -119,6 +124,7 @@ void OnSurfaceCreated(OH_NativeXComponent* component, void* window)
     lockFor(IdOf(component), [=](PlayerContext& ctx) {
         ctx.window = window;
         ctx.player->updateNativeSurface(window, (int)width, (int)height);
+        //ctx.player->set(ColorSpaceUnknown, window); // hdr passthrough
     });
 }
 
@@ -189,10 +195,10 @@ napi_value SetMedia(napi_env env, napi_callback_info info)
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
     const string url = ToString(env, args[1]);
     lockFor(ToString(env, args[0]), [&](PlayerContext& ctx) {
-        if (url.rfind("fd://", 0) == 0) {
-            ctx.player->setProperty("avio", url.substr(5));
+        if (url.starts_with("fd://")) {
+            ctx.player->setProperty("avio.fd", url.substr(5));
             ctx.player->setMedia("fd:");
-        } else if (url.rfind("file://", 0) == 0) {
+        } else if (url.starts_with("file://")) {
             char* realPath = nullptr;
             FileManagement_ErrCode err = OH_FileUri_GetPathFromUri(url.c_str(), (unsigned int)url.size(), &realPath);
             if (err == ERR_OK && realPath != nullptr) {
