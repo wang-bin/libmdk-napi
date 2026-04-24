@@ -16,5 +16,4 @@ target_link_libraries(mdk_napi
     libace_napi.z.so
     libace_ndk.z.so
     libhilog_ndk.z.so
-    libohfileuri.so
 )
