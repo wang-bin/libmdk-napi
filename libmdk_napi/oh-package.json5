@@ -1,10 +1,20 @@
 {
   "name": "@mediadevkit/libmdk-napi",
   "version": "0.1.0",
-  "description": "Reusable MDK player package for OpenHarmony applications",
+  "description": "MDK player package for OpenHarmony applications",
+  "homepage": "https://github.com/wang-bin/libmdk-napi",
+  "repository": "https://github.com/wang-bin/libmdk-napi",
   "main": "src/main/ets/index.ets",
   "author": "Wang Bin",
   "license": "MIT",
   "dependencies": {},
-  "devDependencies": {}
+  "devDependencies": {},
+  "keywords": [
+    "player",
+    "HDR",
+    "DolbyVision",
+    "alpha",
+    "ffmpeg",
+    "MediaPlayer",
+  ]
 }

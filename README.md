@@ -95,7 +95,7 @@ hdc shell aa start -b com.mediadevkit.mdkexample -a EntryAbility
 ## Example usage
 
 ```ts
-import { ColorSpace, MdkPlayerController, MdkPlayerView } from '@mediadevkit/libmdk-napi';
+import { MdkPlayerController, MdkPlayerView } from '@mediadevkit/libmdk-napi';
 
 @Entry
 @Component
@@ -117,7 +117,6 @@ struct DemoPage {
       MdkPlayerView({ controller: this.controller, playerWidth: '100%', playerHeight: 240 })
 
       Button('Pause').onClick(() => this.controller.pause())
-      Button('BT.709').onClick(() => this.controller.setColorSpace(ColorSpace.BT709))
     }
   }
 }
