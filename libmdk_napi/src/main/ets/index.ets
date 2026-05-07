@@ -16,6 +16,7 @@ export {
   TimestampEOS,
   getGlobalOptionInt,
   getGlobalOptionString,
+  setGlobalOption,
   setGlobalOptionFloat,
   setGlobalOptionInt,
   setGlobalOptionString,

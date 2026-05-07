@@ -30,3 +30,14 @@ export function setGlobalOptionFloat(key: string, value: number): void {
   nativeModule.setGlobalOptionFloat(key, value);
 }
 
+export function setGlobalOption(key: string, value: string | number): void {
+  if (typeof value === 'string') {
+    setGlobalOptionString(key, value);
+    return;
+  }
+  if (Number.isInteger(value)) {
+    setGlobalOptionInt(key, value);
+    return;
+  }
+  setGlobalOptionFloat(key, value);
+}
