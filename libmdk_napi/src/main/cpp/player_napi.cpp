@@ -257,6 +257,20 @@ napi_value Seek(napi_env env, napi_callback_info info)
     return Undefined(env);
 }
 
+napi_value SeekWithFlags(napi_env env, napi_callback_info info)
+{
+    size_t argc = 3; napi_value args[3];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    int64_t ms = 0;
+    int32_t flags = 0;
+    napi_get_value_int64(env, args[1], &ms);
+    napi_get_value_int32(env, args[2], &flags);
+    lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) {
+        ctx.player->seek(ms, (SeekFlag)flags);
+    });
+    return Undefined(env);
+}
+
 napi_value SetPlaybackRate(napi_env env, napi_callback_info info)
 {
     size_t argc = 2; napi_value args[2];
@@ -317,6 +331,21 @@ napi_value SetColorSpace(napi_env env, napi_callback_info info)
     int32_t colorSpace = 0;
     napi_get_value_int32(env, args[1], &colorSpace);
     lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) { ctx.player->set((ColorSpace)colorSpace, ctx.window); });
+    return Undefined(env);
+}
+
+napi_value SetVideoEffect(napi_env env, napi_callback_info info)
+{
+    size_t argc = 3; napi_value args[3];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    int32_t effect = 0;
+    double value = 0;
+    napi_get_value_int32(env, args[1], &effect);
+    napi_get_value_double(env, args[2], &value);
+    lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) {
+        const float v = (float)value;
+        ctx.player->set((VideoEffect)effect, v, ctx.window);
+    });
     return Undefined(env);
 }
 
@@ -417,6 +446,77 @@ napi_value IsPlaying(napi_env env, napi_callback_info info)
     return result;
 }
 
+napi_value Version(napi_env env, napi_callback_info info)
+{
+    napi_value result = nullptr;
+    napi_create_int32(env, version(), &result);
+    return result;
+}
+
+napi_value SetGlobalOptionString(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2; napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    const auto key = ToString(env, args[0]);
+    const auto value = ToString(env, args[1]);
+    SetGlobalOption(key.c_str(), value.c_str());
+    return Undefined(env);
+}
+
+napi_value GetGlobalOptionString(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    const auto key = ToString(env, args[0]);
+    const char* value = nullptr;
+    if (!GetGlobalOption(key.c_str(), &value) || !value) {
+        napi_value result = nullptr;
+        napi_get_null(env, &result);
+        return result;
+    }
+    napi_value result = nullptr;
+    napi_create_string_utf8(env, value, NAPI_AUTO_LENGTH, &result);
+    return result;
+}
+
+napi_value SetGlobalOptionInt(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2; napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    const auto key = ToString(env, args[0]);
+    int32_t value = 0;
+    napi_get_value_int32(env, args[1], &value);
+    SetGlobalOption(key.c_str(), value);
+    return Undefined(env);
+}
+
+napi_value GetGlobalOptionInt(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    const auto key = ToString(env, args[0]);
+    int value = 0;
+    if (!GetGlobalOption(key.c_str(), &value)) {
+        napi_value result = nullptr;
+        napi_get_null(env, &result);
+        return result;
+    }
+    napi_value result = nullptr;
+    napi_create_int32(env, value, &result);
+    return result;
+}
+
+napi_value SetGlobalOptionFloat(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2; napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    const auto key = ToString(env, args[0]);
+    double value = 0;
+    napi_get_value_double(env, args[1], &value);
+    SetGlobalOption(key.c_str(), (float)value);
+    return Undefined(env);
+}
+
 napi_value Init(napi_env env, napi_value exports)
 {
     RegisterLogHandlerOnce();
@@ -454,12 +554,14 @@ napi_value Init(napi_env env, napi_value exports)
         {"stop", nullptr, Stop, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"prepare", nullptr, Prepare, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"seek", nullptr, Seek, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"seekWithFlags", nullptr, SeekWithFlags, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setPlaybackRate", nullptr, SetPlaybackRate, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setVolume", nullptr, SetVolume, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setLoop", nullptr, SetLoop, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setProperty", nullptr, SetProperty, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"getProperty", nullptr, GetProperty, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setColorSpace", nullptr, SetColorSpace, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"setVideoEffect", nullptr, SetVideoEffect, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setDecoders", nullptr, SetDecoders, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setActiveTracks", nullptr, SetActiveTracks, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setAudioBackends", nullptr, SetAudioBackends, nullptr, nullptr, nullptr, napi_default, nullptr},
@@ -470,6 +572,12 @@ napi_value Init(napi_env env, napi_value exports)
         {"getMediaStatus", nullptr, GetMediaStatus, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"isPlaying", nullptr, IsPlaying, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setVideoSurfaceSize", nullptr, SetVideoSurfaceSize, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"version", nullptr, Version, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"setGlobalOptionString", nullptr, SetGlobalOptionString, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"getGlobalOptionString", nullptr, GetGlobalOptionString, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"setGlobalOptionInt", nullptr, SetGlobalOptionInt, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"getGlobalOptionInt", nullptr, GetGlobalOptionInt, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"setGlobalOptionFloat", nullptr, SetGlobalOptionFloat, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
 
     napi_define_properties(env, exports, sizeof(descriptors) / sizeof(descriptors[0]), descriptors);

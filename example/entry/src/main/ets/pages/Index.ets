@@ -1,4 +1,10 @@
-import { MdkPlayerController, MdkPlayerView } from '@mediadevkit/libmdk-napi';
+import {
+  MdkPlayerController,
+  MdkPlayerView,
+  MediaStatus,
+  SeekFlag,
+  VideoEffect,
+} from '@mediadevkit/libmdk-napi';
 import picker from '@ohos.file.picker';
 
 const SPEEDS: number[] = [0.5, 1.0, 1.5, 2.0];
@@ -18,6 +24,9 @@ struct Index {
   @State url: string = 'https://ks3-cn-beijing.ksyun.com/ksplayer/h265/outside_demo/v1.1.3/720P2M30fpsh265-wasmtest.flv';
   @State isFullscreen: boolean = false;
   @State videoReady: boolean = false;
+  @State mediaStatus: number = MediaStatus.NoMedia;
+  @State vfxBrightness: number = 0;
+  @State vfxSaturation: number = 0;
   @StorageProp('openFileUri') @Watch('onOpenFileUriChanged') openFileUri: string = '';
 
   aboutToAppear(): void {
@@ -39,7 +48,7 @@ struct Index {
   }
 
   private startProgressTimer(): void {
-    this.progressTimer = setInterval(() => {
+    this.progressTimer = setInterval((): void => {
       if (!this.isSeeking) {
         this.currentPos = this.controller.getPosition();
         const dur = this.controller.getDuration();
@@ -47,6 +56,7 @@ struct Index {
           this.duration = dur;
         }
       }
+      this.mediaStatus = this.controller.getMediaStatus();
     }, 500);
   }
 
@@ -85,14 +95,15 @@ struct Index {
     Column() {
       // Video area — double tap to toggle fullscreen
       Stack() {
-        if (this.videoReady) {
+        Stack() {
           MdkPlayerView({
             controller: this.controller
           })
-            .width('100%')
-            .height('100%')
-            .border({ width: 1, color: Color.White, style: BorderStyle.Solid })
         }
+        .width('100%')
+        .height('100%')
+        .border({ width: 1, color: Color.White, style: BorderStyle.Solid })
+        .visibility(this.videoReady ? Visibility.Visible : Visibility.Hidden)
       }
       .width('100%')
       .layoutWeight(1)
@@ -132,7 +143,8 @@ struct Index {
           })
           .onTouch((event: TouchEvent) => {
             if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-              this.controller.seek(this.currentPos);
+              // Accurate seek by default (no KeyFrame flag)
+              this.controller.seek(this.currentPos, SeekFlag.FromStart);
               this.isSeeking = false;
             }
           })
@@ -150,6 +162,125 @@ struct Index {
       }
       .margin({ top: 8 })
       .padding({ left: 4, right: 4 })
+
+      // MediaStatus badges
+      Flex({ wrap: FlexWrap.Wrap }) {
+        Text('Loading')
+          .fontSize(10)
+          .fontColor((this.mediaStatus & MediaStatus.Loading) !== 0 ? Color.White : '#666666')
+          .backgroundColor((this.mediaStatus & MediaStatus.Loading) !== 0 ? '#0070c0' : '#222222')
+          .borderRadius(4)
+          .padding({ left: 4, right: 4, top: 2, bottom: 2 })
+        Text('Loaded')
+          .fontSize(10)
+          .fontColor((this.mediaStatus & MediaStatus.Loaded) !== 0 ? Color.White : '#666666')
+          .backgroundColor((this.mediaStatus & MediaStatus.Loaded) !== 0 ? '#0070c0' : '#222222')
+          .borderRadius(4)
+          .padding({ left: 4, right: 4, top: 2, bottom: 2 })
+        Text('Buffering')
+          .fontSize(10)
+          .fontColor((this.mediaStatus & MediaStatus.Buffering) !== 0 ? Color.White : '#666666')
+          .backgroundColor((this.mediaStatus & MediaStatus.Buffering) !== 0 ? '#0070c0' : '#222222')
+          .borderRadius(4)
+          .padding({ left: 4, right: 4, top: 2, bottom: 2 })
+        Text('Buffered')
+          .fontSize(10)
+          .fontColor((this.mediaStatus & MediaStatus.Buffered) !== 0 ? Color.White : '#666666')
+          .backgroundColor((this.mediaStatus & MediaStatus.Buffered) !== 0 ? '#0070c0' : '#222222')
+          .borderRadius(4)
+          .padding({ left: 4, right: 4, top: 2, bottom: 2 })
+        Text('Seeking')
+          .fontSize(10)
+          .fontColor((this.mediaStatus & MediaStatus.Seeking) !== 0 ? Color.White : '#666666')
+          .backgroundColor((this.mediaStatus & MediaStatus.Seeking) !== 0 ? '#0070c0' : '#222222')
+          .borderRadius(4)
+          .padding({ left: 4, right: 4, top: 2, bottom: 2 })
+        Text('End')
+          .fontSize(10)
+          .fontColor((this.mediaStatus & MediaStatus.End) !== 0 ? Color.White : '#666666')
+          .backgroundColor((this.mediaStatus & MediaStatus.End) !== 0 ? '#0070c0' : '#222222')
+          .borderRadius(4)
+          .padding({ left: 4, right: 4, top: 2, bottom: 2 })
+        Text('Error')
+          .fontSize(10)
+          .fontColor((this.mediaStatus & MediaStatus.Invalid) !== 0 ? Color.White : '#666666')
+          .backgroundColor((this.mediaStatus & MediaStatus.Invalid) !== 0 ? '#cc0000' : '#222222')
+          .borderRadius(4)
+          .padding({ left: 4, right: 4, top: 2, bottom: 2 })
+      }
+      .width('100%')
+      .margin({ top: 8 })
+      .padding({ left: 4, right: 4 })
+
+      // SeekFlag demo buttons
+      Row({ space: 8 }) {
+        Button('−10s Fast')
+          .fontSize(12)
+          .onClick(() => {
+            // Fast (key-frame only) seek relative to current position
+            this.controller.seek(-10000, SeekFlag.KeyFrame | SeekFlag.FromNow);
+          })
+        Button('+10s Fast')
+          .fontSize(12)
+          .onClick(() => {
+            this.controller.seek(10000, SeekFlag.KeyFrame | SeekFlag.FromNow);
+          })
+        Button('+10s Accurate')
+          .fontSize(12)
+          .onClick(() => {
+            // Accurate seek: no KeyFrame flag
+            this.controller.seek(this.currentPos + 10000, SeekFlag.FromStart);
+          })
+      }
+      .margin({ top: 8 })
+
+      // VideoEffect: brightness and saturation
+      Column({ space: 4 }) {
+        Row({ space: 8 }) {
+          Text('Brightness')
+            .fontColor(Color.White)
+            .fontSize(12)
+            .width(80)
+          Slider({ value: this.vfxBrightness * 100, min: -100, max: 100, step: 1, style: SliderStyle.OutSet })
+            .layoutWeight(1)
+            .trackColor(Color.Gray)
+            .selectedColor(Color.White)
+            .onChange((v: number) => {
+              this.vfxBrightness = v / 100;
+              this.controller.setVideoEffect(VideoEffect.Brightness, this.vfxBrightness);
+            })
+          Text(`${Math.round(this.vfxBrightness * 100)}`)
+            .fontColor(Color.White)
+            .fontSize(12)
+            .width(36)
+            .textAlign(TextAlign.End)
+        }
+        .width('100%')
+        .padding({ left: 4, right: 4 })
+
+        Row({ space: 8 }) {
+          Text('Saturation')
+            .fontColor(Color.White)
+            .fontSize(12)
+            .width(80)
+          Slider({ value: this.vfxSaturation * 100, min: -100, max: 100, step: 1, style: SliderStyle.OutSet })
+            .layoutWeight(1)
+            .trackColor(Color.Gray)
+            .selectedColor(Color.White)
+            .onChange((v: number) => {
+              this.vfxSaturation = v / 100;
+              this.controller.setVideoEffect(VideoEffect.Saturation, this.vfxSaturation);
+            })
+          Text(`${Math.round(this.vfxSaturation * 100)}`)
+            .fontColor(Color.White)
+            .fontSize(12)
+            .width(36)
+            .textAlign(TextAlign.End)
+        }
+        .width('100%')
+        .padding({ left: 4, right: 4 })
+      }
+      .margin({ top: 8 })
 
       // Playback controls
       Row({ space: 12 }) {

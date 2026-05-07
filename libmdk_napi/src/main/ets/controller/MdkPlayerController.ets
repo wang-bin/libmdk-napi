@@ -1,5 +1,5 @@
 import nativeModule from 'libmdk_napi.so';
-import { ColorSpace, MediaType, PlaybackState } from '../enums';
+import { ColorSpace, MediaStatus, MediaType, PlaybackState, SeekFlag, VideoEffect } from '../enums';
 
 function createPlayerId(): string {
   const now = Date.now();
@@ -38,8 +38,8 @@ export class MdkPlayerController {
     nativeModule.prepare(this.playerId, startPosition);
   }
 
-  seek(positionMs: number): void {
-    nativeModule.seek(this.playerId, positionMs);
+  seek(positionMs: number, flags: SeekFlag = SeekFlag.Default): void {
+    nativeModule.seekWithFlags(this.playerId, positionMs, flags);
   }
 
   setPlaybackRate(rate: number): void {
@@ -64,6 +64,10 @@ export class MdkPlayerController {
 
   setColorSpace(colorSpace: ColorSpace): void {
     nativeModule.setColorSpace(this.playerId, colorSpace);
+  }
+
+  setVideoEffect(effect: VideoEffect, value: number): void {
+    nativeModule.setVideoEffect(this.playerId, effect, value);
   }
 
   setDecoders(names: string[], mediaType: MediaType = MediaType.Video): void {
@@ -94,7 +98,7 @@ export class MdkPlayerController {
     return nativeModule.getState(this.playerId);
   }
 
-  getMediaStatus(): number {
+  getMediaStatus(): MediaStatus {
     return nativeModule.getMediaStatus(this.playerId);
   }
 
@@ -111,4 +115,11 @@ export class MdkPlayerController {
   }
 }
 
-export { ColorSpace, MediaType, PlaybackState };
+export {
+  ColorSpace,
+  MediaStatus,
+  MediaType,
+  PlaybackState,
+  SeekFlag,
+  VideoEffect,
+};
