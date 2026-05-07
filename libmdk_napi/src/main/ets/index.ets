@@ -21,4 +21,14 @@ export {
   setGlobalOptionString,
   version,
 } from './global';
+export {
+	MediaInfo,
+	AudioCodecParameters,
+	VideoCodecParameters,
+	SubtitleCodecParameters,
+	MediaStreamInfo,
+	AudioStreamInfo,
+	VideoStreamInfo,
+	SubtitleStreamInfo,
+} from './media-info';
 export { MdkPlayerController } from './controller/MdkPlayerController';

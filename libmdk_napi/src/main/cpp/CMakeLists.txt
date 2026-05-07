@@ -9,6 +9,7 @@ setup_mdk()
 
 add_library(mdk_napi SHARED
     player_napi.cpp
+    media_info_napi.cpp
 )
 
 target_link_libraries(mdk_napi

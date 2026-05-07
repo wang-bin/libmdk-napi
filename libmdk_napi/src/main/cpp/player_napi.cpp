@@ -9,6 +9,7 @@
 #include <napi/native_api.h>
 
 #include "mdk/Player.h"
+#include "media_info_napi.h"
 
 #include <map>
 #include <memory>
@@ -118,7 +119,7 @@ string IdOf(OH_NativeXComponent* component)
 
 void OnSurfaceCreated(OH_NativeXComponent* component, void* window)
 {
-    uint64_t width = 0, height = 0;
+        uint64_t width = 0, height = 0;
     OH_NativeXComponent_GetXComponentSize(component, window, &width, &height);
     lockFor(IdOf(component), [=](PlayerContext& ctx) {
         ctx.window = window;
@@ -394,16 +395,6 @@ napi_value GetPosition(napi_env env, napi_callback_info info)
     return result;
 }
 
-napi_value GetDuration(napi_env env, napi_callback_info info)
-{
-    size_t argc = 1; napi_value args[1];
-    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-    const auto dur = lockFor(ToString(env, args[0]), [](PlayerContext& ctx) { return ctx.player->mediaInfo().duration; });
-    napi_value result = nullptr;
-    napi_create_int64(env, dur, &result);
-    return result;
-}
-
 napi_value Buffered(napi_env env, napi_callback_info info)
 {
     size_t argc = 1; napi_value args[1];
@@ -432,6 +423,14 @@ napi_value GetMediaStatus(napi_env env, napi_callback_info info)
     napi_value result = nullptr;
     napi_create_int32(env, status, &result);
     return result;
+}
+
+napi_value GetMediaInfo(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    const auto mediaInfo = lockFor(ToString(env, args[0]), [](PlayerContext& ctx) { return ctx.player->mediaInfo(); });
+    return MediaInfoToNapi(env, mediaInfo);
 }
 
 napi_value IsPlaying(napi_env env, napi_callback_info info)
@@ -566,10 +565,10 @@ napi_value Init(napi_env env, napi_value exports)
         {"setActiveTracks", nullptr, SetActiveTracks, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setAudioBackends", nullptr, SetAudioBackends, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"getPosition", nullptr, GetPosition, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"getDuration", nullptr, GetDuration, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"buffered", nullptr, Buffered, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"getState", nullptr, GetState, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"getMediaStatus", nullptr, GetMediaStatus, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"getMediaInfo", nullptr, GetMediaInfo, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"isPlaying", nullptr, IsPlaying, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setVideoSurfaceSize", nullptr, SetVideoSurfaceSize, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"version", nullptr, Version, nullptr, nullptr, nullptr, napi_default, nullptr},

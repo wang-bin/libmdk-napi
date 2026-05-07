@@ -1,5 +1,6 @@
 import nativeModule from 'libmdk_napi.so';
 import { ColorSpace, MediaStatus, MediaType, PlaybackState, SeekFlag, VideoEffect } from '../enums';
+import type { MediaInfo } from '../media-info';
 
 function createPlayerId(): string {
   const now = Date.now();
@@ -87,7 +88,7 @@ export class MdkPlayerController {
   }
 
   getDuration(): number {
-    return nativeModule.getDuration(this.playerId);
+    return this.getMediaInfo().duration;
   }
 
   buffered(): number {
@@ -100,6 +101,10 @@ export class MdkPlayerController {
 
   getMediaStatus(): MediaStatus {
     return nativeModule.getMediaStatus(this.playerId);
+  }
+
+  getMediaInfo(): MediaInfo {
+    return nativeModule.getMediaInfo(this.playerId);
   }
 
   isPlaying(): boolean {
@@ -123,3 +128,4 @@ export {
   SeekFlag,
   VideoEffect,
 };
+export type { MediaInfo };
