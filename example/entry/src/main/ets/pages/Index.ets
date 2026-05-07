@@ -29,6 +29,8 @@ struct Index {
   @State mediaStatus: number = MediaStatus.NoMedia;
   @State vfxBrightness: number = 0;
   @State vfxSaturation: number = 0;
+  @State showMediaInfoDialog: boolean = false;
+  @State mediaInfoDialogText: string = '';
   @StorageProp('openFileUri') @Watch('onOpenFileUriChanged') openFileUri: string = '';
 
   aboutToAppear(): void {
@@ -95,7 +97,43 @@ struct Index {
     return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
   }
 
+  private mediaInfoText(): string {
+    const info = this.controller.getMediaInfo();
+    const text = JSON.stringify(
+      info,
+      (key: string, value: Object | string | number | boolean | null | undefined) => {
+        if (value === null || value === undefined) {
+          return undefined;
+        }
+        if (typeof value === 'string' && value.length === 0) {
+          return undefined;
+        }
+        if (typeof value === 'boolean' && value === false) {
+          return undefined;
+        }
+        if (typeof value === 'number') {
+          if (!Number.isFinite(value)) {
+            return undefined;
+          }
+          if (value === 0 && key !== 'index') {
+            return undefined;
+          }
+        }
+        if (Array.isArray(value) && value.length === 0) {
+          return undefined;
+        }
+        if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) {
+          return undefined;
+        }
+        return value;
+      },
+      2
+    );
+    return text ?? '{}';
+  }
+
   build() {
+    Stack() {
     Column() {
       // Video area — double tap to toggle fullscreen
       Stack() {
@@ -169,8 +207,8 @@ struct Index {
         }
         .width('100%')
       }
-      .margin({ top: 8 })
-      .padding({ left: 4, right: 4 })
+      .margin({ top: 4 })
+      .padding({ left: 2, right: 2 })
 
       // MediaStatus badges
       Flex({ wrap: FlexWrap.Wrap }) {
@@ -218,38 +256,16 @@ struct Index {
           .padding({ left: 4, right: 4, top: 2, bottom: 2 })
       }
       .width('100%')
-      .margin({ top: 8 })
-      .padding({ left: 4, right: 4 })
-
-      // SeekFlag demo buttons
-      Row({ space: 8 }) {
-        Button('−10s Fast')
-          .fontSize(12)
-          .onClick(() => {
-            // Fast (key-frame only) seek relative to current position
-            this.controller.seek(-10000, SeekFlag.KeyFrame | SeekFlag.FromNow);
-          })
-        Button('+10s Fast')
-          .fontSize(12)
-          .onClick(() => {
-            this.controller.seek(10000, SeekFlag.KeyFrame | SeekFlag.FromNow);
-          })
-        Button('+10s Accurate')
-          .fontSize(12)
-          .onClick(() => {
-            // Accurate seek: no KeyFrame flag
-            this.controller.seek(this.currentPos + 10000, SeekFlag.FromStart);
-          })
-      }
-      .margin({ top: 8 })
+      .margin({ top: 4 })
+      .padding({ left: 2, right: 2 })
 
       // VideoEffect: brightness and saturation
       Column({ space: 4 }) {
-        Row({ space: 8 }) {
+        Row({ space: 6 }) {
           Text('Brightness')
             .fontColor(Color.White)
             .fontSize(12)
-            .width(80)
+            .width(72)
           Slider({ value: this.vfxBrightness * 100, min: -100, max: 100, step: 1, style: SliderStyle.OutSet })
             .layoutWeight(1)
             .trackColor(Color.Gray)
@@ -265,13 +281,13 @@ struct Index {
             .textAlign(TextAlign.End)
         }
         .width('100%')
-        .padding({ left: 4, right: 4 })
+        .padding({ left: 2, right: 2 })
 
-        Row({ space: 8 }) {
+        Row({ space: 6 }) {
           Text('Saturation')
             .fontColor(Color.White)
             .fontSize(12)
-            .width(80)
+            .width(72)
           Slider({ value: this.vfxSaturation * 100, min: -100, max: 100, step: 1, style: SliderStyle.OutSet })
             .layoutWeight(1)
             .trackColor(Color.Gray)
@@ -287,12 +303,12 @@ struct Index {
             .textAlign(TextAlign.End)
         }
         .width('100%')
-        .padding({ left: 4, right: 4 })
+        .padding({ left: 2, right: 2 })
       }
-      .margin({ top: 8 })
+      .margin({ top: 6 })
 
       // Playback controls
-      Row({ space: 12 }) {
+      Row({ space: 8 }) {
         Button(this.isPlaying ? 'Pause' : 'Play')
           .onClick(() => {
             if (this.isPlaying) {
@@ -316,7 +332,7 @@ struct Index {
             this.controller.setPlaybackRate(SPEEDS[this.speedIndex]);
           })
       }
-      .margin({ top: 8 })
+      .margin({ top: 6 })
 
       // Volume row  (slider 0-100 → volume 0-4x, quadratic mapping)
       Row({ space: 8 }) {
@@ -351,62 +367,81 @@ struct Index {
           .textAlign(TextAlign.End)
       }
       .width('100%')
-      .margin({ top: 8 })
-      .padding({ left: 4, right: 4 })
+      .margin({ top: 6 })
+      .padding({ left: 2, right: 2 })
 
       TextInput({ placeholder: 'Enter URL', text: this.url })
         .fontColor(Color.White)
-        .margin({ top: 16 })
+        .margin({ top: 10 })
         .onChange((val) => {
           this.url = val;
         })
 
-      Button('Load URL')
-        .margin({ top: 8 })
-        .onClick(() => {
-          this.currentPos = 0;
-          this.duration = 0;
-          this.controller.setColorSpace(ColorSpace.Unknown);
-          this.controller.setMedia(this.url);
-          this.controller.play();
-          this.isPlaying = true;
-        })
+      Row({ space: 6 }) {
+        Button('Load URL')
+          .layoutWeight(1)
+          .onClick(() => {
+            this.currentPos = 0;
+            this.duration = 0;
+            this.controller.setColorSpace(ColorSpace.Unknown);
+            this.controller.setMedia(this.url);
+            this.controller.play();
+            this.isPlaying = true;
+          })
 
-      Button('Open File')
-        .margin({ top: 8 })
-        .onClick(() => {
-          const documentPicker = new picker.DocumentViewPicker();
-          const selectOptions = new picker.DocumentSelectOptions();
-          selectOptions.maxSelectNumber = 20;
-          documentPicker.select(selectOptions).then((uris: Array<string>) => {
-            let mediaUri: string = '';
-            uris.forEach((uri: string) => {
-              if (uri.toLowerCase().endsWith('.ttf')) {
-                setGlobalOption('subtitle.fonts.file', uri);
-              } else if (!mediaUri) {
-                mediaUri = uri;
-              }
-            });
+        Button('Files')
+          .layoutWeight(1)
+          .onClick(() => {
+            const documentPicker = new picker.DocumentViewPicker();
+            const selectOptions = new picker.DocumentSelectOptions();
+            selectOptions.maxSelectNumber = 20;
+            // Hint by filtering selectable files to fonts, subtitles and media.
+            selectOptions.fileSuffixFilters = [
+              '.ttf',
+              '.srt', '.ass', '.ssa', '.vtt', '.sup', '.txt', '.lrc',
+              '.mp4', '.mkv', '.mov', '.flv', '.webm', '.avi', '.ts', '.wmv', '.mxf', 'mpg', '.m4s',
+              '.jpg', '.jpeg', '.png', '.gif', '.bmp',
+              '.mp3', '.aac', '.wav', '.m4a', '.flac', '.ape'
+            ];
+            documentPicker.select(selectOptions).then((uris: Array<string>) => {
+              let mediaUri: string = '';
+              uris.forEach((uri: string) => {
+                if (uri.toLowerCase().endsWith('.ttf')) {
+                  setGlobalOption('subtitle.fonts.file', uri);
+                } else if (!mediaUri) {
+                  mediaUri = uri;
+                }
+              });
 
-            if (mediaUri) {
-              this.url = mediaUri;
-              this.currentPos = 0;
-              this.duration = 0;
-              this.controller.setColorSpace(ColorSpace.Unknown);
+              if (mediaUri) {
+                this.url = mediaUri;
+                this.currentPos = 0;
+                this.duration = 0;
+                this.controller.setColorSpace(ColorSpace.Unknown);
 
 /*
-              const file = fs.openSync( this.url, fs.OpenMode.READ_ONLY);
-              const fdUrl = `fd://${file.fd}`;
-              this.controller.setMedia(fdUrl);*/
+                const file = fs.openSync( this.url, fs.OpenMode.READ_ONLY);
+                const fdUrl = `fd://${file.fd}`;
+                this.controller.setMedia(fdUrl);*/
 
-              this.controller.setMedia(mediaUri);
-              this.controller.play();
-              this.isPlaying = true;
-            }
-          }).catch((err: Error) => {
-            console.error('DocumentViewPicker select failed: ' + err.message);
-          });
-        })
+                this.controller.setMedia(mediaUri);
+                this.controller.play();
+                this.isPlaying = true;
+              }
+            }).catch((err: Error) => {
+              console.error('DocumentViewPicker select failed: ' + err.message);
+            });
+          })
+
+        Button('Info')
+          .layoutWeight(1)
+          .onClick(() => {
+            this.mediaInfoDialogText = this.mediaInfoText();
+            this.showMediaInfoDialog = true;
+          })
+      }
+      .width('100%')
+      .margin({ top: 6 })
 
         } // end Column
       } // end Scroll
@@ -417,5 +452,48 @@ struct Index {
     .height('100%')
     .padding(this.isFullscreen ? 0 : 16)
     .backgroundColor(Color.Black)
+
+    if (this.showMediaInfoDialog) {
+      Column() {
+        Column({ space: 8 }) {
+          Row() {
+            Text('MediaInfo')
+              .fontColor(Color.White)
+              .fontSize(18)
+              .fontWeight(FontWeight.Medium)
+            Blank()
+            Button('Close')
+              .fontSize(12)
+              .onClick(() => {
+                this.showMediaInfoDialog = false;
+              })
+          }
+          .width('100%')
+
+          Scroll() {
+            Text(this.mediaInfoDialogText)
+              .fontColor(Color.White)
+              .fontSize(12)
+              .textAlign(TextAlign.Start)
+              .width('100%')
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .scrollBar(BarState.On)
+        }
+        .width('92%')
+        .height('80%')
+        .padding(12)
+        .backgroundColor('#1f1f1f')
+        .borderRadius(12)
+      }
+      .width('100%')
+      .height('100%')
+      .justifyContent(FlexAlign.Center)
+      .backgroundColor('#80000000')
+    }
+    }
+    .width('100%')
+    .height('100%')
   }
 }
