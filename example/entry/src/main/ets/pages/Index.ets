@@ -1,7 +1,9 @@
 import {
+  ColorSpace,
   MdkPlayerController,
   MdkPlayerView,
   MediaStatus,
+  setGlobalOption,
   SeekFlag,
   VideoEffect,
 } from '@mediadevkit/libmdk-napi';
@@ -30,14 +32,15 @@ struct Index {
   @StorageProp('openFileUri') @Watch('onOpenFileUriChanged') openFileUri: string = '';
 
   aboutToAppear(): void {
-    this.controller.setDecoders(['OH', 'ohcodec:copy=1', 'FFmpeg']);
+    //this.controller.setDecoders(['OH', 'ohcodec:copy=1', 'FFmpeg']);
     const initialUri = this.openFileUri;
     if (initialUri) {
       this.url = initialUri;
       AppStorage.setOrCreate<string>('openFileUri', '');
     }
+    this.controller.setColorSpace(ColorSpace.Unknown);
     this.controller.setMedia(this.url);
-    this.controller.play();
+    //this.controller.play();
     this.isPlaying = true;
     this.startProgressTimer();
   }
@@ -76,6 +79,7 @@ struct Index {
     this.url = uri;
     this.currentPos = 0;
     this.duration = 0;
+    this.controller.setColorSpace(ColorSpace.Unknown); // hdr
     this.controller.setMedia(uri);
     this.controller.play();
     this.isPlaying = true;
@@ -97,8 +101,13 @@ struct Index {
       Stack() {
         Stack() {
           MdkPlayerView({
-            controller: this.controller
+            controller: this.controller,
+            playerBgColor: Color.Green,
           })
+            //.backgroundColor(Color.Green)
+            .width('100%')
+            .height('100%')
+            .border({ width: 1, color: Color.White, style: BorderStyle.Solid })
         }
         .width('100%')
         .height('100%')
@@ -357,6 +366,7 @@ struct Index {
         .onClick(() => {
           this.currentPos = 0;
           this.duration = 0;
+          this.controller.setColorSpace(ColorSpace.Unknown);
           this.controller.setMedia(this.url);
           this.controller.play();
           this.isPlaying = true;
@@ -367,13 +377,29 @@ struct Index {
         .onClick(() => {
           const documentPicker = new picker.DocumentViewPicker();
           const selectOptions = new picker.DocumentSelectOptions();
-          selectOptions.maxSelectNumber = 1;
+          selectOptions.maxSelectNumber = 20;
           documentPicker.select(selectOptions).then((uris: Array<string>) => {
-            if (uris.length > 0) {
-              this.url = uris[0];
+            let mediaUri: string = '';
+            uris.forEach((uri: string) => {
+              if (uri.toLowerCase().endsWith('.ttf')) {
+                setGlobalOption('subtitle.fonts.file', uri);
+              } else if (!mediaUri) {
+                mediaUri = uri;
+              }
+            });
+
+            if (mediaUri) {
+              this.url = mediaUri;
               this.currentPos = 0;
               this.duration = 0;
-              this.controller.setMedia(this.url);
+              this.controller.setColorSpace(ColorSpace.Unknown);
+
+/*
+              const file = fs.openSync( this.url, fs.OpenMode.READ_ONLY);
+              const fdUrl = `fd://${file.fd}`;
+              this.controller.setMedia(fdUrl);*/
+
+              this.controller.setMedia(mediaUri);
               this.controller.play();
               this.isPlaying = true;
             }
