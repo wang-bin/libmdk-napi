@@ -15,7 +15,8 @@ add_library(mdk_napi MODULE
 
 target_link_libraries(mdk_napi
     mdk
-    libace_napi.z.so
-    libace_ndk.z.so
-    libhilog_ndk.z.so
+    ace_napi.z
+    ace_ndk.z
+    hilog_ndk.z
+    rawfile.z
 )

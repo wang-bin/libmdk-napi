@@ -4,9 +4,11 @@ import {
   MdkPlayerView,
   MediaStatus,
   setGlobalOption,
+  setResourceManager,
   SeekFlag,
   VideoEffect,
 } from '@mediadevkit/libmdk-napi';
+import common from '@ohos.app.ability.common';
 import picker from '@ohos.file.picker';
 
 const SPEEDS: number[] = [0.5, 1.0, 1.5, 2.0];
@@ -42,6 +44,12 @@ struct Index {
     }
     this.controller.setColorSpace(ColorSpace.Unknown);
     this.controller.setMedia(this.url);
+    //const ctx = AppStorage.get('abilityContext') as Context;
+    const hostContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    setResourceManager(hostContext.resourceManager);
+    //this.controller.setMedia("rawfile://mercury.mov"); // resouces/rawfile/mercury.mov
+    //setGlobalOption('subtitle.fonts.file', "rawfile:fonts/subfont.ttf");
+
     //this.controller.play();
     this.isPlaying = true;
     this.startProgressTimer();
@@ -399,7 +407,7 @@ struct Index {
             selectOptions.fileSuffixFilters = [
               '.ttf',
               '.srt', '.ass', '.ssa', '.vtt', '.sup', '.txt', '.lrc',
-              '.mp4', '.mkv', '.mov', '.flv', '.webm', '.avi', '.ts', '.wmv', '.mxf', 'mpg', '.m4s',
+              '.mp4', '.mkv', '.mov', '.flv', '.webm', '.avi', '.ts', '.wmv', '.mxf', 'mpg', '.m4s', '.rm', '.rmvb',
               '.jpg', '.jpeg', '.png', '.gif', '.bmp',
               '.mp3', '.aac', '.wav', '.m4a', '.flac', '.ape'
             ];

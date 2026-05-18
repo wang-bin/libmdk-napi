@@ -471,9 +471,10 @@ napi_value Init(napi_env env, napi_value exports)
         {"setGlobalOptionInt", nullptr, SetGlobalOptionInt, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"getGlobalOptionInt", nullptr, GetGlobalOptionInt, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setGlobalOptionFloat", nullptr, SetGlobalOptionFloat, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"setResourceManager", nullptr, SetResourceManager, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
 
-    napi_define_properties(env, exports, sizeof(descriptors) / sizeof(descriptors[0]), descriptors);
+    napi_define_properties(env, exports, std::size(descriptors), descriptors);
     return exports;
 }
 

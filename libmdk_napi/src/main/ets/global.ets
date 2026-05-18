@@ -1,4 +1,5 @@
 import nativeModule from 'libmdk_napi.so';
+import resourceManager from '@ohos.resourceManager';
 
 export const TimestampEOS: number = Number.MAX_VALUE;
 export const TimeScaleForInt: number = 1000.0;
@@ -40,4 +41,8 @@ export function setGlobalOption(key: string, value: string | number): void {
     return;
   }
   setGlobalOptionFloat(key, value);
+}
+
+export function setResourceManager(manager: resourceManager.ResourceManager): void {
+  nativeModule.setResourceManager(manager);
 }

@@ -20,6 +20,7 @@ export {
   setGlobalOptionFloat,
   setGlobalOptionInt,
   setGlobalOptionString,
+  setResourceManager,
   version,
 } from './global';
 export {

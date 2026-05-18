@@ -13,3 +13,5 @@ napi_value GetGlobalOptionString(napi_env env, napi_callback_info info);
 napi_value SetGlobalOptionInt(napi_env env, napi_callback_info info);
 napi_value GetGlobalOptionInt(napi_env env, napi_callback_info info);
 napi_value SetGlobalOptionFloat(napi_env env, napi_callback_info info);
+
+napi_value SetResourceManager(napi_env env, napi_callback_info info);

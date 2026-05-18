@@ -1,7 +1,9 @@
 #include "global_napi.h"
 #include "mdk/global.h"
 #include <hilog/log.h>
+#include <rawfile/raw_file_manager.h>
 #include <mutex>
+#include <vector>
 
 using namespace MDK_NS;
 using namespace std;
@@ -109,5 +111,22 @@ napi_value SetGlobalOptionFloat(napi_env env, napi_callback_info info)
     double value = 0;
     napi_get_value_double(env, args[1], &value);
     SetGlobalOption(key.c_str(), (float)value);
+    return Undefined(env);
+}
+
+napi_value SetResourceManager(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1; napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    if (argc < 1) {
+        return Undefined(env);
+    }
+
+    if (auto resMgr = OH_ResourceManager_InitNativeResourceManager(env, args[0])) {
+        SetGlobalOption("resourceManager", resMgr);
+    } else {
+        napi_throw_error(env, nullptr, "Failed to initialize NativeResourceManager");
+    }
     return Undefined(env);
 }
