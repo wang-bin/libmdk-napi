@@ -7,8 +7,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(cmake/deps.cmake)
 setup_mdk()
 
-add_library(mdk_napi SHARED
+add_library(mdk_napi MODULE
     player_napi.cpp
+    global_napi.cpp
     media_info_napi.cpp
 )
 
