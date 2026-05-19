@@ -161,9 +161,9 @@ export interface NativeMdkPlayerModule {
   play: (playerId: string) => void;
   pause: (playerId: string) => void;
   stop: (playerId: string) => void;
-  prepare: (playerId: string, startPosition?: number) => void;
-  seek: (playerId: string, positionMs: number) => void;
-  seekWithFlags: (playerId: string, positionMs: number, flags: SeekFlag) => void;
+  prepare: (playerId: string, startPosition?: number, callback?: (position: number) => void) => void;
+  seek: (playerId: string, positionMs: number, callback?: (position: number) => void) => void;
+  seekWithFlags: (playerId: string, positionMs: number, flags: SeekFlag, callback?: (position: number) => void) => void;
   setPlaybackRate: (playerId: string, rate: number) => void;
   setVolume: (playerId: string, volume: number) => void;
   setLoop: (playerId: string, count: number) => void;
@@ -187,6 +187,11 @@ export interface NativeMdkPlayerModule {
   setGlobalOptionInt: (key: string, value: number) => void;
   getGlobalOptionInt: (key: string) => number | null;
   setGlobalOptionFloat: (key: string, value: number) => void;
+  onStateChanged: (playerId: string, callback: ((state: PlaybackState) => void) | null) => void;
+  onMediaStatus: (playerId: string, callback: ((oldStatus: MediaStatus, newStatus: MediaStatus) => void) | null) => void;
+  onEvent: (playerId: string, callback: ((error: number, category: string, detail: string) => void) | null) => void;
+  onLoop: (playerId: string, callback: ((loopCount: number) => void) | null) => void;
+  onCurrentMediaChanged: (playerId: string, callback: (() => void) | null) => void;
 }
 
 declare const nativeModule: NativeMdkPlayerModule;
