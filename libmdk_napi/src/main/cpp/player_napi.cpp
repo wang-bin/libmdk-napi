@@ -23,9 +23,25 @@ using namespace std;
 
 namespace { // no need to add static for each function/var in an anonymous namespace
 
+// Heap-allocated data passed through threadsafe-function queues.
+struct MediaStatusData { int32_t oldStatus; int32_t newStatus; };
+struct EventData { int64_t error; string category; string detail; };
+// One-shot callback: carries both the tsfn (to self-release) and the result value.
+struct OneShotData { napi_threadsafe_function tsfn; int64_t value; };
+
 struct PlayerContext {
     unique_ptr<Player> player;
     void* window = nullptr;
+    // Per-player JS callback threadsafe functions (nullptr = not registered).
+    napi_threadsafe_function stateChangedTsfn  = nullptr;
+    napi_threadsafe_function mediaStatusTsfn   = nullptr;
+    napi_threadsafe_function eventTsfn         = nullptr;
+    napi_threadsafe_function loopTsfn          = nullptr;
+    napi_threadsafe_function mediaChangedTsfn  = nullptr;
+    // Tokens used to remove token-keyed callbacks (onMediaStatus/onEvent/onLoop).
+    CallbackToken mediaStatusToken = 0;
+    CallbackToken eventToken       = 0;
+    CallbackToken loopToken        = 0;
 };
 
 mutex gMutex;
@@ -91,7 +107,7 @@ string IdOf(OH_NativeXComponent* component)
 
 void OnSurfaceCreated(OH_NativeXComponent* component, void* window)
 {
-        uint64_t width = 0, height = 0;
+    uint64_t width = 0, height = 0;
     OH_NativeXComponent_GetXComponentSize(component, window, &width, &height);
     lockFor(IdOf(component), [=](PlayerContext& ctx) {
         ctx.window = window;
@@ -143,13 +159,39 @@ napi_value ReleasePlayer(napi_env env, napi_callback_info info)
     size_t argc = 1; napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
     const auto id = ToString(env, args[0]);
-    const scoped_lock lock(gMutex);
-    auto it = gPlayers.find(id);
-    if (it != gPlayers.end()) {
-        if (it->second.window)
-            it->second.player->updateNativeSurface(nullptr, 0, 0);
-        it->second.player->set(State::Stopped);
-        gPlayers.erase(it);
+
+    // Collect tsfns so we can release them outside the lock (avoiding potential deadlock with the JS main thread finalizer).
+    vector<napi_threadsafe_function> tsfns;
+    {
+        const scoped_lock lock(gMutex);
+        auto it = gPlayers.find(id);
+        if (it != gPlayers.end()) {
+            auto& ctx = it->second;
+            if (ctx.window)
+                ctx.player->updateNativeSurface(nullptr, 0, 0);
+            ctx.player->set(State::Stopped);
+            // Clear MDK-side callbacks so no new items are queued to the tsfns.
+            if (ctx.stateChangedTsfn)
+                ctx.player->onStateChanged(nullptr);
+            if (ctx.mediaStatusTsfn)
+                ctx.player->onMediaStatus(nullptr, &ctx.mediaStatusToken);
+            if (ctx.eventTsfn)
+                ctx.player->onEvent(nullptr, &ctx.eventToken);
+            if (ctx.loopTsfn)
+                ctx.player->onLoop(nullptr, &ctx.loopToken);
+            if (ctx.mediaChangedTsfn)
+                ctx.player->currentMediaChanged(nullptr);
+            tsfns.emplace_back(ctx.stateChangedTsfn);
+            tsfns.emplace_back(ctx.mediaStatusTsfn);
+            tsfns.emplace_back(ctx.eventTsfn);
+            tsfns.emplace_back(ctx.loopTsfn);
+            tsfns.emplace_back(ctx.mediaChangedTsfn);
+            gPlayers.erase(it);
+        }
+    }
+    for (auto& fn : tsfns) {
+        if (fn)
+            napi_release_threadsafe_function(fn, napi_tsfn_release);
     }
     return Undefined(env);
 }
@@ -202,38 +244,100 @@ napi_value Stop(napi_env env, napi_callback_info info)
     return Undefined(env);
 }
 
+static bool IsFunction(napi_env env, napi_value v)
+{
+    auto t = napi_undefined;
+    napi_typeof(env, v, &t);
+    return t == napi_function;
+}
+
+// Create a named threadsafe function wrapping a JS function.
+static napi_threadsafe_function CreateTsfn(napi_env env, napi_value fn, const char* name,
+                                    napi_threadsafe_function_call_js callJsCb)
+{
+    napi_value asyncName = nullptr;
+    napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &asyncName);
+    napi_threadsafe_function tsfn = nullptr;
+    napi_create_threadsafe_function(env, fn, nullptr, asyncName,
+                                    /*max_queue_size=*/0, /*initial_thread_count=*/1,
+                                    nullptr, nullptr, nullptr, callJsCb, &tsfn);
+    return tsfn;
+}
+
+// forward declaration — defined below with SeekWithFlags
+static void SeekCallJs(napi_env env, napi_value fn, void*, void* data);
+
 napi_value Prepare(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2; napi_value args[2];
+    size_t argc = 3; napi_value args[3];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
     int64_t startPosition = 0;
     if (argc > 1)
         napi_get_value_int64(env, args[1], &startPosition);
-    lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) { ctx.player->prepare(startPosition); });
+
+    if (argc > 2 && IsFunction(env, args[2])) {
+        napi_threadsafe_function tsfn = CreateTsfn(env, args[2], "prepareCallback", SeekCallJs);
+        lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) {
+            ctx.player->prepare(startPosition, [tsfn](int64_t pos, bool* /*boost*/) -> bool {
+                napi_call_threadsafe_function(tsfn, new OneShotData{tsfn, pos}, napi_tsfn_nonblocking);
+                return true;
+            });
+        });
+    } else {
+        lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) { ctx.player->prepare(startPosition); });
+    }
     return Undefined(env);
+}
+
+// Shared helper: call seek with optional one-shot callback tsfn (nullptr = no callback).
+static void DoSeek(const string& id, int64_t ms, SeekFlag flags, napi_threadsafe_function tsfn)
+{
+    lockFor(id, [=](PlayerContext& ctx) {
+        if (tsfn) {
+            ctx.player->seek(ms, flags, [tsfn](int64_t pos) {
+                napi_call_threadsafe_function(tsfn, new OneShotData{tsfn, pos}, napi_tsfn_nonblocking);
+            });
+        } else {
+            ctx.player->seek(ms, flags);
+        }
+    });
+}
+
+static void SeekCallJs(napi_env env, napi_value fn, void*, void* data)
+{
+    auto* d = static_cast<OneShotData*>(data);
+    napi_value arg = nullptr;
+    napi_create_int64(env, d->value, &arg);
+    napi_value recv = nullptr;
+    napi_get_undefined(env, &recv);
+    napi_call_function(env, recv, fn, 1, &arg, nullptr);
+    napi_release_threadsafe_function(d->tsfn, napi_tsfn_release);
+    delete d;
 }
 
 napi_value Seek(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2; napi_value args[2];
+    size_t argc = 3; napi_value args[3];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
     int64_t ms = 0;
     napi_get_value_int64(env, args[1], &ms);
-    lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) { ctx.player->seek(ms); });
+    napi_threadsafe_function tsfn = (argc > 2 && IsFunction(env, args[2]))
+        ? CreateTsfn(env, args[2], "seekCallback", SeekCallJs) : nullptr;
+    DoSeek(ToString(env, args[0]), ms, SeekFlag::Default, tsfn);
     return Undefined(env);
 }
 
 napi_value SeekWithFlags(napi_env env, napi_callback_info info)
 {
-    size_t argc = 3; napi_value args[3];
+    size_t argc = 4; napi_value args[4];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
     int64_t ms = 0;
     int32_t flags = 0;
     napi_get_value_int64(env, args[1], &ms);
     napi_get_value_int32(env, args[2], &flags);
-    lockFor(ToString(env, args[0]), [=](PlayerContext& ctx) {
-        ctx.player->seek(ms, (SeekFlag)flags);
-    });
+    napi_threadsafe_function tsfn = (argc > 3 && IsFunction(env, args[3]))
+        ? CreateTsfn(env, args[3], "seekCallback", SeekCallJs) : nullptr;
+    DoSeek(ToString(env, args[0]), ms, (SeekFlag)flags, tsfn);
     return Undefined(env);
 }
 
@@ -410,6 +514,221 @@ napi_value IsPlaying(napi_env env, napi_callback_info info)
     return result;
 }
 
+// onStateChanged(playerId, callback | null)
+napi_value OnStateChanged(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    const auto id = ToString(env, args[0]);
+
+    napi_threadsafe_function oldTsfn = nullptr;
+    {
+        const scoped_lock lock(gMutex);
+        auto it = gPlayers.find(id);
+        if (it == gPlayers.end())
+            return Undefined(env);
+        auto& ctx = it->second;
+
+        // Always clear previous C++ callback first.
+        ctx.player->onStateChanged(nullptr);
+        oldTsfn = ctx.stateChangedTsfn;
+        ctx.stateChangedTsfn = nullptr;
+
+        if (IsFunction(env, args[1])) {
+            auto callJs = [](napi_env env, napi_value fn, void*, void* data) {
+                napi_value arg = nullptr;
+                napi_create_int32(env, (int32_t)(intptr_t)data, &arg);
+                napi_value recv = nullptr; napi_get_undefined(env, &recv);
+                napi_call_function(env, recv, fn, 1, &arg, nullptr);
+            };
+            ctx.stateChangedTsfn = CreateTsfn(env, args[1], "onStateChanged", callJs);
+            napi_threadsafe_function tsfn = ctx.stateChangedTsfn;
+            ctx.player->onStateChanged([tsfn](State state) {
+                napi_call_threadsafe_function(tsfn, (void*)(intptr_t)(int32_t)state, napi_tsfn_nonblocking);
+            });
+        }
+    }
+    if (oldTsfn)
+        napi_release_threadsafe_function(oldTsfn, napi_tsfn_release);
+    return Undefined(env);
+}
+
+// onMediaStatus(playerId, callback | null)
+// callback(oldStatus: number, newStatus: number)
+napi_value OnMediaStatus(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    const auto id = ToString(env, args[0]);
+
+    napi_threadsafe_function oldTsfn = nullptr;
+    {
+        const scoped_lock lock(gMutex);
+        auto it = gPlayers.find(id);
+        if (it == gPlayers.end())
+            return Undefined(env);
+        auto& ctx = it->second;
+
+        if (ctx.mediaStatusTsfn)
+            ctx.player->onMediaStatus(nullptr, &ctx.mediaStatusToken);
+        oldTsfn = ctx.mediaStatusTsfn;
+        ctx.mediaStatusTsfn = nullptr;
+        ctx.mediaStatusToken = 0;
+
+        if (IsFunction(env, args[1])) {
+            auto callJs = [](napi_env env, napi_value fn, void*, void* data) {
+                auto d = static_cast<MediaStatusData*>(data);
+                napi_value argv[2] = {};
+                napi_create_int32(env, d->oldStatus, &argv[0]);
+                napi_create_int32(env, d->newStatus, &argv[1]);
+                delete d;
+                napi_value recv = nullptr; napi_get_undefined(env, &recv);
+                napi_call_function(env, recv, fn, 2, argv, nullptr);
+            };
+            ctx.mediaStatusTsfn = CreateTsfn(env, args[1], "onMediaStatus", callJs);
+            napi_threadsafe_function tsfn = ctx.mediaStatusTsfn;
+            ctx.player->onMediaStatus([tsfn](MediaStatus oldS, MediaStatus newS) {
+                auto d = new MediaStatusData{(int32_t)oldS, (int32_t)newS};
+                napi_call_threadsafe_function(tsfn, d, napi_tsfn_nonblocking);
+                return true;
+            }, &ctx.mediaStatusToken);
+        }
+    }
+    if (oldTsfn)
+        napi_release_threadsafe_function(oldTsfn, napi_tsfn_release);
+    return Undefined(env);
+}
+
+// onEvent(playerId, callback | null)
+// callback(error: number, category: string, detail: string)
+napi_value OnEvent(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    const auto id = ToString(env, args[0]);
+
+    napi_threadsafe_function oldTsfn = nullptr;
+    {
+        const scoped_lock lock(gMutex);
+        auto it = gPlayers.find(id);
+        if (it == gPlayers.end())
+            return Undefined(env);
+        auto& ctx = it->second;
+
+        if (ctx.eventTsfn)
+            ctx.player->onEvent(nullptr, &ctx.eventToken);
+        oldTsfn = ctx.eventTsfn;
+        ctx.eventTsfn = nullptr;
+        ctx.eventToken = 0;
+
+        if (IsFunction(env, args[1])) {
+            auto callJs = [](napi_env env, napi_value fn, void*, void* data) {
+                auto* d = static_cast<EventData*>(data);
+                napi_value argv[3] = {};
+                napi_create_int64(env, d->error, &argv[0]);
+                napi_create_string_utf8(env, d->category.c_str(), d->category.size(), &argv[1]);
+                napi_create_string_utf8(env, d->detail.c_str(), d->detail.size(), &argv[2]);
+                delete d;
+                napi_value recv = nullptr; napi_get_undefined(env, &recv);
+                napi_call_function(env, recv, fn, 3, argv, nullptr);
+            };
+            ctx.eventTsfn = CreateTsfn(env, args[1], "onEvent", callJs);
+            napi_threadsafe_function tsfn = ctx.eventTsfn;
+            ctx.player->onEvent([tsfn](const MediaEvent& e) {
+                auto* d = new EventData{e.error, e.category, e.detail};
+                napi_call_threadsafe_function(tsfn, d, napi_tsfn_nonblocking);
+                return false;
+            }, &ctx.eventToken);
+        }
+    }
+    if (oldTsfn)
+        napi_release_threadsafe_function(oldTsfn, napi_tsfn_release);
+    return Undefined(env);
+}
+
+// onLoop(playerId, callback | null)
+// callback(loopCount: number)
+napi_value OnLoop(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    const auto id = ToString(env, args[0]);
+
+    napi_threadsafe_function oldTsfn = nullptr;
+    {
+        const scoped_lock lock(gMutex);
+        auto it = gPlayers.find(id);
+        if (it == gPlayers.end())
+            return Undefined(env);
+        auto& ctx = it->second;
+
+        if (ctx.loopTsfn)
+            ctx.player->onLoop(nullptr, &ctx.loopToken);
+        oldTsfn = ctx.loopTsfn;
+        ctx.loopTsfn = nullptr;
+        ctx.loopToken = 0;
+
+        if (IsFunction(env, args[1])) {
+            auto callJs = [](napi_env env, napi_value fn, void*, void* data) {
+                napi_value arg = nullptr;
+                napi_create_int32(env, (int32_t)(intptr_t)data, &arg);
+                napi_value recv = nullptr; napi_get_undefined(env, &recv);
+                napi_call_function(env, recv, fn, 1, &arg, nullptr);
+            };
+            ctx.loopTsfn = CreateTsfn(env, args[1], "onLoop", callJs);
+            napi_threadsafe_function tsfn = ctx.loopTsfn;
+            ctx.player->onLoop([tsfn](int count) {
+                napi_call_threadsafe_function(tsfn, (void*)(intptr_t)count, napi_tsfn_nonblocking);
+            }, &ctx.loopToken);
+        }
+    }
+    if (oldTsfn)
+        napi_release_threadsafe_function(oldTsfn, napi_tsfn_release);
+    return Undefined(env);
+}
+
+// onCurrentMediaChanged(playerId, callback | null)
+// callback()  — fired when gapless next media starts
+napi_value OnCurrentMediaChanged(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    const auto id = ToString(env, args[0]);
+
+    napi_threadsafe_function oldTsfn = nullptr;
+    {
+        const scoped_lock lock(gMutex);
+        auto it = gPlayers.find(id);
+        if (it == gPlayers.end())
+            return Undefined(env);
+        auto& ctx = it->second;
+
+        ctx.player->currentMediaChanged(nullptr);
+        oldTsfn = ctx.mediaChangedTsfn;
+        ctx.mediaChangedTsfn = nullptr;
+
+        if (IsFunction(env, args[1])) {
+            auto callJs = [](napi_env env, napi_value fn, void*, void* /*data*/) {
+                napi_value recv = nullptr; napi_get_undefined(env, &recv);
+                napi_call_function(env, recv, fn, 0, nullptr, nullptr);
+            };
+            ctx.mediaChangedTsfn = CreateTsfn(env, args[1], "onCurrentMediaChanged", callJs);
+            napi_threadsafe_function tsfn = ctx.mediaChangedTsfn;
+            ctx.player->currentMediaChanged([tsfn]() {
+                napi_call_threadsafe_function(tsfn, nullptr, napi_tsfn_nonblocking);
+            });
+        }
+    }
+    if (oldTsfn)
+        napi_release_threadsafe_function(oldTsfn, napi_tsfn_release);
+    return Undefined(env);
+}
+
 napi_value Init(napi_env env, napi_value exports)
 {
     RegisterLogHandlerOnce();
@@ -472,6 +791,11 @@ napi_value Init(napi_env env, napi_value exports)
         {"getGlobalOptionInt", nullptr, GetGlobalOptionInt, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setGlobalOptionFloat", nullptr, SetGlobalOptionFloat, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setResourceManager", nullptr, SetResourceManager, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"onStateChanged", nullptr, OnStateChanged, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"onMediaStatus", nullptr, OnMediaStatus, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"onEvent", nullptr, OnEvent, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"onLoop", nullptr, OnLoop, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"onCurrentMediaChanged", nullptr, OnCurrentMediaChanged, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
 
     napi_define_properties(env, exports, std::size(descriptors), descriptors);

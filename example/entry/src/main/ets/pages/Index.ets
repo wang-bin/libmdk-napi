@@ -10,6 +10,7 @@ import {
 } from '@mediadevkit/libmdk-napi';
 import common from '@ohos.app.ability.common';
 import picker from '@ohos.file.picker';
+import promptAction from '@ohos.promptAction';
 
 const SPEEDS: number[] = [0.5, 1.0, 1.5, 2.0];
 
@@ -49,14 +50,23 @@ struct Index {
     setResourceManager(hostContext.resourceManager);
     //this.controller.setMedia("rawfile://mercury.mov"); // resouces/rawfile/mercury.mov
     //setGlobalOption('subtitle.fonts.file', "rawfile:fonts/subfont.ttf");
+    this.controller.onMediaStatus((_oldStatus: MediaStatus, newStatus: MediaStatus): void => {
+      this.mediaStatus = newStatus;
+    });
+    this.mediaStatus = this.controller.getMediaStatus();
+    this.controller.prepare(0, (pos: number): void => {
+      this.showToast(`prepare done at ${this.formatTime(pos)} (${pos} ms)`);
+    });
 
     //this.controller.play();
-    this.isPlaying = true;
+
+    this.isPlaying = false;
     this.startProgressTimer();
   }
 
   aboutToDisappear(): void {
     this.stopProgressTimer();
+    this.controller.onMediaStatus(null);
     this.controller.dispose();
   }
 
@@ -69,7 +79,6 @@ struct Index {
           this.duration = dur;
         }
       }
-      this.mediaStatus = this.controller.getMediaStatus();
     }, 500);
   }
 
@@ -103,6 +112,16 @@ struct Index {
     const mm = m.toString().padStart(2, '0');
     const ss = s.toString().padStart(2, '0');
     return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+
+  private showToast(message: string): void {
+    try {
+      promptAction.showToast({
+        message,
+        duration: 1500,
+      });
+    } catch (_err) {
+    }
   }
 
   private mediaInfoText(): string {
@@ -199,7 +218,10 @@ struct Index {
           .onTouch((event: TouchEvent) => {
             if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
               // Accurate seek by default (no KeyFrame flag)
-              this.controller.seek(this.currentPos, SeekFlag.FromStart);
+              this.controller.seek(this.currentPos, SeekFlag.FromStart, (pos: number) => {
+                this.currentPos = pos;
+                this.showToast(`seek result: ${this.formatTime(pos)} (${pos} ms)`);
+              });
               this.isSeeking = false;
             }
           })

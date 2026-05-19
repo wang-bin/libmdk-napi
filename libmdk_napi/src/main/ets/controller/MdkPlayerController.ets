@@ -35,12 +35,12 @@ export class MdkPlayerController {
     nativeModule.stop(this.playerId);
   }
 
-  prepare(startPosition: number = 0): void {
-    nativeModule.prepare(this.playerId, startPosition);
+  prepare(startPosition: number = 0, callback?: (position: number) => void): void {
+    nativeModule.prepare(this.playerId, startPosition, callback ?? null);
   }
 
-  seek(positionMs: number, flags: SeekFlag = SeekFlag.Default): void {
-    nativeModule.seekWithFlags(this.playerId, positionMs, flags);
+  seek(positionMs: number, flags: SeekFlag = SeekFlag.Default, callback?: (position: number) => void): void {
+    nativeModule.seekWithFlags(this.playerId, positionMs, flags, callback ?? null);
   }
 
   setPlaybackRate(rate: number): void {
@@ -117,6 +117,26 @@ export class MdkPlayerController {
 
   dispose(): void {
     nativeModule.releasePlayer(this.playerId);
+  }
+
+  onStateChanged(callback: ((state: PlaybackState) => void) | null): void {
+    nativeModule.onStateChanged(this.playerId, callback);
+  }
+
+  onMediaStatus(callback: ((oldStatus: MediaStatus, newStatus: MediaStatus) => void) | null): void {
+    nativeModule.onMediaStatus(this.playerId, callback);
+  }
+
+  onEvent(callback: ((error: number, category: string, detail: string) => void) | null): void {
+    nativeModule.onEvent(this.playerId, callback);
+  }
+
+  onLoop(callback: ((loopCount: number) => void) | null): void {
+    nativeModule.onLoop(this.playerId, callback);
+  }
+
+  onCurrentMediaChanged(callback: (() => void) | null): void {
+    nativeModule.onCurrentMediaChanged(this.playerId, callback);
   }
 }
 
