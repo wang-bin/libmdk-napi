@@ -1,3 +1,9 @@
+## 0.3.0
+
+* 支持 rawfile
+* 增加 onMediaStatus, onStateChanged, onEvent, onLoop
+* prepare、seek 支持执行完成的回调
+
 ## 0.2.0
 
 * MediaInfo 接口
