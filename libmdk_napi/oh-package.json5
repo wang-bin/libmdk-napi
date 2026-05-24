@@ -1,6 +1,6 @@
 {
   "name": "@mediadevkit/libmdk-napi",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "MDK player package for OpenHarmony",
   "homepage": "https://github.com/wang-bin/libmdk-napi",
   "repository": "https://github.com/wang-bin/libmdk-napi",
@@ -15,6 +15,6 @@
     "DolbyVision",
     "alpha",
     "FFmpeg",
-    "MediaPlayer",
+    "MediaPlayer"
   ]
 }

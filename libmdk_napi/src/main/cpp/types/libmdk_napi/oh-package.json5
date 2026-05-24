@@ -1,5 +1,5 @@
 {
-  "name": "libmdk_napi",
-  "version": "0.3.0",
+  "name": "mdk_napi",
+  "version": "1.0.0",
   "description": "Type declarations for the libmdk OHOS native module"
 }
