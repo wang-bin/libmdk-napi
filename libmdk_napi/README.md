@@ -11,7 +11,7 @@
 - HDR 直通
 - 杜比视界渲染，包括 profile 5
 - 标准透明视频解码和渲染，包括 vp8、vp9、hevc alpha
-- 字幕渲染: 带样式文本字幕ass、srt（目前需通过`setGlobalOption('subtitle.fonts.file', uri);`设置默认字体路径），bitmap字幕如pgs等
+- 字幕渲染: 带样式文本字幕ass、srt，bitmap字幕如pgs等。支持系统字体，亦可通过`setGlobalOption('subtitle.fonts.file', uri);`设置默认字体路径
 
 ## 使用
 导入SDK: `ohpm install @mediadevkit/libmdk-napi`
